@@ -1,3 +1,19 @@
+/// minimal example of adding a custom render pipeline in bevy 0.11.
+///
+/// When this example runs, you should only see a blue screen. There are no
+/// vertex buffers, or anything else in this example.  Effectively it is
+/// shader-toy written in bevy.
+///
+/// This example runs `shader.wgsl` shader each frame.  The ShaderToy component
+/// holds the handle to the shader and it's passed through the ShaderToyPipeline
+/// to render. If you see a 3d cube, check the console output for the shader
+/// error.
+///
+/// If no messages appear on stdout, set to help debug:
+///     RUST_LOG="info,wgpu_core=warn,wgpu_hal=warn"
+///
+/// See comments throughout file for more details.
+///
 use bevy::{
     asset::ChangeWatcher,
     core_pipeline::core_3d::Transparent3d,
@@ -75,7 +91,7 @@ fn setup(
     // add our shader toy; note that the SpatialBundle is required so that the
     // ShaderToy is visible to the camera.  This can probably be changed by
     // tweaking `queue_shader_toys()`
-    let shader = asset_server.load("shaders/custom_material.wgsl");
+    let shader = asset_server.load("shader.wgsl");
     commands.spawn((SpatialBundle::default(), ShaderToy { shader }));
 }
 
