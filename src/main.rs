@@ -18,13 +18,16 @@ use bevy::{
         camera::ExtractedCamera,
         render_graph::{RenderGraphApp, ViewNode, ViewNodeRunner},
         render_resource::{
-            BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState,
-            MultisampleState, Operations, PipelineCache, PolygonMode, PrimitiveState,
-            PrimitiveTopology, RenderPassColorAttachment, RenderPassDescriptor,
-            RenderPipelineDescriptor, TextureFormat,
+            BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+            BindGroupLayoutEntry, BindingType, BlendState, BufferSize, CachedRenderPipelineId,
+            ColorTargetState, ColorWrites, FragmentState, MultisampleState, Operations,
+            PipelineCache, PolygonMode, PrimitiveState, PrimitiveTopology,
+            RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStage,
+            ShaderStages, ShaderType, TextureFormat, UniformBuffer,
         },
+        renderer::{RenderDevice, RenderQueue},
         texture::BevyDefault,
-        view::ViewTarget,
+        view::{ExtractedView, ViewTarget},
         RenderApp,
     },
 };
@@ -98,6 +101,12 @@ impl Plugin for HexGridPlugin {
     }
 }
 
+#[derive(Debug, ShaderType, Default)]
+struct ViewUniform {
+    viewport: UVec4,
+    projection: Mat4,
+}
+
 #[derive(Debug, Default)]
 struct HexGridRenderNode;
 
@@ -106,13 +115,13 @@ impl HexGridRenderNode {
 }
 
 impl ViewNode for HexGridRenderNode {
-    type ViewQuery = (&'static ExtractedCamera, &'static ViewTarget);
+    type ViewQuery = (&'static ExtractedView, &'static ViewTarget);
 
     fn run(
         &self,
         _graph: &mut bevy::render::render_graph::RenderGraphContext,
         render_context: &mut bevy::render::renderer::RenderContext,
-        (_camera, view_target): QueryItem<Self::ViewQuery>,
+        (view, view_target): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
         let hex_grid_pipeline = world.resource::<HexGridPipeline>();
@@ -120,6 +129,30 @@ impl ViewNode for HexGridRenderNode {
         let pipeline = pipeline_cache
             .get_render_pipeline(hex_grid_pipeline.pipeline_id)
             .expect("HexGridPipeline should be present in the PipelineCache");
+
+        // create a buffer for our uniform and write it to the GPU
+        let mut buffer: UniformBuffer<ViewUniform> = UniformBuffer::default();
+        buffer.set(ViewUniform {
+            viewport: view.viewport,
+            projection: view.projection,
+        });
+        let render_queue = world.resource::<RenderQueue>();
+        buffer.write_buffer(render_context.render_device(), render_queue);
+        let view_binding = buffer
+            .binding()
+            .expect("ViewUniform buffer binding to be valid");
+
+        // create a bind group
+        let bind_group = render_context
+            .render_device()
+            .create_bind_group(&BindGroupDescriptor {
+                label: Some("hex_grid_bind_group"),
+                layout: &hex_grid_pipeline.layout,
+                entries: &[BindGroupEntry {
+                    binding: 0,
+                    resource: view_binding.clone(),
+                }],
+            });
 
         // create a render pass.  Note that we don't want to inherit the
         // color_attachments because then the pipeline Multisample must match
@@ -135,6 +168,7 @@ impl ViewNode for HexGridRenderNode {
         });
 
         render_pass.set_render_pipeline(pipeline);
+        render_pass.set_bind_group(0, &bind_group, &[]);
         render_pass.draw(0..4, 0..1);
         Ok(())
     }
@@ -143,17 +177,33 @@ impl ViewNode for HexGridRenderNode {
 #[derive(Debug, Resource)]
 struct HexGridPipeline {
     pipeline_id: CachedRenderPipelineId,
+    layout: BindGroupLayout,
 }
 
 impl FromWorld for HexGridPipeline {
     fn from_world(world: &mut World) -> Self {
         let shader = world.resource::<AssetServer>().load("hex_grid.wgsl");
 
+        let render_device = world.resource::<RenderDevice>();
+        let layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("hex_grid_bind_group_layout"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: bevy::render::render_resource::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
         let pipeline_cache = world.resource_mut::<PipelineCache>();
 
         let pipeline_id = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
             label: Some("hex_grid_pipeline".into()),
-            layout: vec![],
+            layout: vec![layout.clone()],
             push_constant_ranges: Vec::new(),
             vertex: bevy::render::render_resource::VertexState {
                 shader: shader.clone(),
@@ -185,6 +235,9 @@ impl FromWorld for HexGridPipeline {
             }),
         });
 
-        Self { pipeline_id }
+        Self {
+            pipeline_id,
+            layout,
+        }
     }
 }
