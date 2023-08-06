@@ -19,8 +19,9 @@ use bevy::{
         render_graph::{RenderGraphApp, ViewNode, ViewNodeRunner},
         render_resource::{
             BlendState, CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState,
-            LoadOp, MultisampleState, Operations, PipelineCache, PolygonMode, PrimitiveState,
-            PrimitiveTopology, RenderPassDescriptor, RenderPipelineDescriptor, TextureFormat,
+            MultisampleState, Operations, PipelineCache, PolygonMode, PrimitiveState,
+            PrimitiveTopology, RenderPassColorAttachment, RenderPassDescriptor,
+            RenderPipelineDescriptor, TextureFormat,
         },
         texture::BevyDefault,
         view::ViewTarget,
@@ -35,7 +36,7 @@ fn main() {
     // enable hot-loading so our shader gets reloaded when it changes
     app.add_plugins((
         DefaultPlugins.set(AssetPlugin {
-            watch_for_changes: ChangeWatcher::with_delay(Duration::from_secs(1)),
+            watch_for_changes: ChangeWatcher::with_delay(Duration::from_millis(200)),
             ..default()
         }),
         HexGridPlugin,
@@ -106,11 +107,12 @@ impl HexGridRenderNode {
 
 impl ViewNode for HexGridRenderNode {
     type ViewQuery = (&'static ExtractedCamera, &'static ViewTarget);
+
     fn run(
         &self,
-        graph: &mut bevy::render::render_graph::RenderGraphContext,
+        _graph: &mut bevy::render::render_graph::RenderGraphContext,
         render_context: &mut bevy::render::renderer::RenderContext,
-        (camera, target): QueryItem<Self::ViewQuery>,
+        (_camera, view_target): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
         let hex_grid_pipeline = world.resource::<HexGridPipeline>();
@@ -119,18 +121,21 @@ impl ViewNode for HexGridRenderNode {
             .get_render_pipeline(hex_grid_pipeline.pipeline_id)
             .expect("HexGridPipeline should be present in the PipelineCache");
 
+        // create a render pass.  Note that we don't want to inherit the
+        // color_attachments because then the pipeline Multisample must match
+        // whatever msaa was set to.
         let mut render_pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("hex_grid_pass"),
-            color_attachments: &[Some(target.get_color_attachment(Operations {
-                load: LoadOp::Load,
-                store: true,
-            }))],
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: view_target.main_texture_view(),
+                resolve_target: None,
+                ops: Operations::default(),
+            })],
             depth_stencil_attachment: None,
         });
 
         render_pass.set_render_pipeline(pipeline);
         render_pass.draw(0..4, 0..1);
-        debug!("{:?} ran", self);
         Ok(())
     }
 }
@@ -167,18 +172,7 @@ impl FromWorld for HexGridPipeline {
                 conservative: false,
             },
             depth_stencil: None,
-            // XXX hard-coding this for right now, but this is wrong.  The post
-            // processing example uses default() and works fine.  But when we
-            // try to run our pipeline, we get errors about msaa mismatch.
-            // One key difference is that we're not calling
-            // view_target.post_process_write() in our `run()`.
-            //
-            // multisample: MultisampleState::default(),
-            multisample: MultisampleState {
-                count: 4,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            multisample: MultisampleState::default(),
             fragment: Some(FragmentState {
                 shader,
                 shader_defs: vec![],
