@@ -28,13 +28,23 @@ fn hex_dist(in: vec2<f32>) -> f32 {
 @fragment
 fn fragment(@builtin(position) in: vec4<f32>) -> @location(0) vec4<f32> {
     let res = vec2<f32>(view.viewport.zw);
-    var uv = (in.xy - vec2<f32>(0.5) * res) / vec2<f32>(res.y);
-    // uv = abs(uv);
+    var uv = (in.xy - (res * 0.5)) / res.y;
 
     var col = vec3<f32>(0.0);
-    // var c = dot(uv, normalize(vec2<f32>(1.0, sqrt(3.0))));
-    // c = max(c, uv.x);
-    col += vec3<f32>(step(hex_dist(uv), 0.2));
 
-    return vec4<f32>(col.x, col.x, col.x, 1.0);
+    uv *= 5.0;
+    var a = fract(uv) - 0.5;
+    var b = fract(uv - 0.5) - 0.5;
+
+    var gv: vec2<f32>;
+    if length(a) < length(b) {
+        gv = a;
+    } else {
+        gv = b;
+    }
+
+    col.r = gv.x;
+    col.g = gv.y;
+
+    return vec4<f32>(col.x, col.y, 0.0, 1.0);
 }
