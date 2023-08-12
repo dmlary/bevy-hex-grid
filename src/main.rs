@@ -14,15 +14,15 @@ use bevy::{
     core_pipeline::core_3d,
     ecs::query::QueryItem,
     prelude::*,
+    reflect::TypePath,
     render::{
-        camera::ExtractedCamera,
         render_graph::{RenderGraphApp, ViewNode, ViewNodeRunner},
         render_resource::{
             BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-            BindGroupLayoutEntry, BindingType, BlendState, BufferSize, CachedRenderPipelineId,
-            ColorTargetState, ColorWrites, FragmentState, MultisampleState, Operations,
+            BindGroupLayoutEntry, BindingType, BlendState, CachedRenderPipelineId,
+            ColorTargetState, ColorWrites, FragmentState, LoadOp, MultisampleState, Operations,
             PipelineCache, PolygonMode, PrimitiveState, PrimitiveTopology,
-            RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, ShaderStage,
+            RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
             ShaderStages, ShaderType, TextureFormat, UniformBuffer,
         },
         renderer::{RenderDevice, RenderQueue},
@@ -31,6 +31,9 @@ use bevy::{
         RenderApp,
     },
 };
+use bevy_dolly::prelude::*;
+use bevy_inspector_egui::quick::FilterQueryInspectorPlugin;
+use leafwing_input_manager::prelude::*;
 use std::time::Duration;
 
 fn main() {
@@ -42,9 +45,12 @@ fn main() {
             watch_for_changes: ChangeWatcher::with_delay(Duration::from_millis(200)),
             ..default()
         }),
+        InputManagerPlugin::<InputActions>::default(),
+        FilterQueryInspectorPlugin::<With<MainCamera>>::default(),
         HexGridPlugin,
     ))
     .add_systems(Startup, setup)
+    .add_systems(Update, (Dolly::<MainCamera>::update_active, handle_input))
     .run();
 }
 
@@ -62,10 +68,79 @@ fn setup(
     });
 
     // camera
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
+    commands.spawn((
+        Name::new("Camera"),
+        MainCamera,
+        Camera3dBundle {
+            // transform: Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+            transform: Transform::from_xyz(0.0, 1.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ..default()
+        },
+        InputManagerBundle::<InputActions> {
+            action_state: ActionState::default(),
+            input_map: input_map(),
+        },
+        Rig::builder()
+            .with(Position::new(Vec3::new(0.0, 2.0, 0.0)))
+            .with(YawPitch::new()) // .pitch_degrees(-30.0)) //.yaw_degrees(45.0))
+            .with(Smooth::new_position(0.3))
+            .with(Smooth::new_rotation(0.3))
+            .with(Arm::new(Vec3::Z * 1.0))
+            .build(),
+    ));
+}
+
+#[derive(Component)]
+struct MainCamera;
+
+#[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, TypePath)]
+pub enum InputActions {
+    Click,
+    Rotate,
+    Scale,
+    ResetCamera,
+    ZeroCamera,
+}
+
+#[rustfmt::skip]
+fn input_map() -> InputMap<InputActions> {
+    InputMap::default()
+        .insert(MouseButton::Left, InputActions::Click)
+        .insert(DualAxis::mouse_motion(), InputActions::Rotate)
+        .insert(SingleAxis::mouse_wheel_y(), InputActions::Scale)
+        .insert(KeyCode::Z, InputActions::ResetCamera)
+        .insert(KeyCode::Key0, InputActions::ZeroCamera)
+        .build()
+}
+
+fn handle_input(
+    mut camera: Query<(&mut Rig, &mut Projection, &ActionState<InputActions>), With<MainCamera>>,
+) {
+    let (mut rig, mut _projection, actions) = camera.single_mut();
+    let camera_yp = rig.driver_mut::<YawPitch>();
+    // let Projection::Orthographic(projection) = projection.as_mut() else { panic!("wrong scaling mode") };
+
+    if actions.just_pressed(InputActions::ResetCamera) {
+        camera_yp.yaw_degrees = 45.0;
+        camera_yp.pitch_degrees = -30.0;
+        //projection.scale = 1.0;
+    }
+
+    if actions.just_pressed(InputActions::ZeroCamera) {
+        camera_yp.yaw_degrees = 0.0;
+        camera_yp.pitch_degrees = 0.0;
+        // projection.scale = 1.0;
+    }
+
+    if actions.pressed(InputActions::Click) {
+        let vector = actions.axis_pair(InputActions::Rotate).unwrap().xy();
+        camera_yp.rotate_yaw_pitch(-0.1 * vector.x * 15.0, -0.1 * vector.y * 15.0);
+    }
+
+    let scale = actions.value(InputActions::Scale);
+    if scale != 0.0 {
+        // projection.scale = (projection.scale * (1.0 - scale * 0.005)).clamp(0.001, 15.0);
+    }
 }
 
 struct HexGridPlugin;
@@ -105,6 +180,9 @@ impl Plugin for HexGridPlugin {
 struct ViewUniform {
     viewport: UVec4,
     projection: Mat4,
+    inverse_projection: Mat4,
+    view: Mat4,
+    position: Vec3,
 }
 
 #[derive(Debug, Default)]
@@ -135,7 +213,20 @@ impl ViewNode for HexGridRenderNode {
         buffer.set(ViewUniform {
             viewport: view.viewport,
             projection: view.projection,
+            inverse_projection: view.projection.inverse(),
+            view: view.transform.compute_matrix(),
+            position: view.transform.translation(),
         });
+        // let mat = dbg!(view.projection * view.transform.compute_matrix());
+        // let vecs = [
+        //     Vec4::new(-1., -1., 0., 1.),
+        //     Vec4::new(-1., 1., 0., 1.),
+        //     Vec4::new(1., -1., 0., 1.),
+        //     Vec4::new(1., 1., 0., 1.),
+        // ];
+        // for vec in vecs {
+        //     debug!("{:?} -> {:?}", vec, mat * vec);
+        // }
         let render_queue = world.resource::<RenderQueue>();
         buffer.write_buffer(render_context.render_device(), render_queue);
         let view_binding = buffer
@@ -162,7 +253,10 @@ impl ViewNode for HexGridRenderNode {
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: view_target.main_texture_view(),
                 resolve_target: None,
-                ops: Operations::default(),
+                ops: Operations {
+                    load: LoadOp::Load,
+                    store: true,
+                },
             })],
             depth_stencil_attachment: None,
         });
@@ -189,7 +283,7 @@ impl FromWorld for HexGridPipeline {
             label: Some("hex_grid_bind_group_layout"),
             entries: &[BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::FRAGMENT,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: bevy::render::render_resource::BufferBindingType::Uniform,
                     has_dynamic_offset: false,

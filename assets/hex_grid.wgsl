@@ -1,50 +1,71 @@
+// resources
+// - 2d hex tiles shadertoy -- https://www.youtube.com/watch?v=VmrIDyYiJBA
+// - computer graphics parametric lines & ray tracing
+//   https://www.youtube.com/watch?v=RHRVBVSiy58&list=PLxGzv4uunL64DRA5DXKuUSJ0hIEbBU7w8&index=12
+// - unprojections explained -- https://www.derschmale.com/2014/09/28/unprojections-explained/
+// - infinite grid vulkan -- https://asliceofrendering.com/scene%20helper/2020/01/05/InfiniteGrid/
+
 struct View {
     viewport: vec4<u32>,
     projection: mat4x4<f32>,
-}
+    inverse_projection: mat4x4<f32>,
+    view: mat4x4<f32>,
+    position: vec3<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) near_point: vec3<f32>,
+    @location(1) far_point: vec3<f32>,
+};
 
 @group(0) @binding(0)
 var<uniform> view: View;
 
+fn unproject_point(pos: vec3<f32>) -> vec3<f32> {
+    let point = view.view * view.inverse_projection * vec4(pos, 1.0);
+    return point.xyz / point.w;
+}
+
 @vertex
-fn vertex(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
-    var grid_plane = array<vec4<f32>, 4>(
-        vec4<f32>(-1., -1., 1., 1.),
-        vec4<f32>(-1., 1., 1., 1.),
-        vec4<f32>(1., -1., 1., 1.),
-        vec4<f32>(1., 1., 1., 1.)
+fn vertex(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
+    var grid_plane = array<vec3<f32>, 4>(
+        vec3<f32>(-1., -1., 1.),
+        vec3<f32>(-1., 1., 1.),
+        vec3<f32>(1., -1., 1.),
+        vec3<f32>(1., 1., 1.)
     );
-    return grid_plane[in_vertex_index];
+
+    var out: VertexOutput;
+    let pos = grid_plane[in_vertex_index];
+    out.clip_position = vec4(pos, 1.0);
+    out.near_point = unproject_point(pos);
+    out.far_point = unproject_point(vec3<f32>(pos.xy, 0.00001));
+    return out;
+    // return vec4(unproject_point(grid_plane[in_vertex_index]), 1.0);
 }
 
-
-fn hex_dist(in: vec2<f32>) -> f32 {
-    let uv = abs(in);
-    var c = dot(uv, normalize(vec2<f32>(1.0, sqrt(3.0))));
-    c = max(c, uv.x);
-    return c;
-}
 
 @fragment
-fn fragment(@builtin(position) in: vec4<f32>) -> @location(0) vec4<f32> {
-    let res = vec2<f32>(view.viewport.zw);
-    var uv = (in.xy - (res * 0.5)) / res.y;
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    var col = vec4<f32>(0.0, 0.0, 0.0, 0.0);
 
-    var col = vec3<f32>(0.0);
-
-    uv *= 5.0;
-    var a = fract(uv) - 0.5;
-    var b = fract(uv - 0.5) - 0.5;
-
-    var gv: vec2<f32>;
-    if length(a) < length(b) {
-        gv = a;
-    } else {
-        gv = b;
+    let v = in.far_point - in.near_point;
+    // calculate intersect with y = 0;
+    let t = -in.near_point.y / v.y;
+    if t <= 0.0 {
+        return col;
     }
+    let intersect = abs(in.near_point + t * v);
+    let gv = fract(intersect);
+    col.b = gv.x;
+    col.r = gv.z;
+    col.a = 1.0;
+    // col.r = t * 10.0;
+    //col.g = xz.y;
 
-    col.r = gv.x;
-    col.g = gv.y;
-
-    return vec4<f32>(col.x, col.y, 0.0, 1.0);
+    // we need to calculate the xy coords where the near-far line intersects y=0
+    // col.g = (in.near_point.y - 0.98) / 10.0;
+    //col.g = (in.near_point.y - 0.95) * 10.0;
+    return col;
 }
