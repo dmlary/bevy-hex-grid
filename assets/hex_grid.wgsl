@@ -45,6 +45,49 @@ fn vertex(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
     // return vec4(unproject_point(grid_plane[in_vertex_index]), 1.0);
 }
 
+fn mod_euclid(p: vec2<f32>, m: vec2<f32>) -> vec2<f32> {
+    var r = p % m;
+    if r.x < 0.0 {
+        r.x += m.x;
+    }
+    if r.y < 0.0 {
+        r.y += m.y;
+    }
+    return r;
+}
+
+
+struct HexCoords {
+    coords: vec2<f32>,
+    center: vec2<f32>,
+    edge_dist: f32,
+};
+
+fn hex_dist(pos: vec2<f32>) -> f32 {
+    let p = abs(pos);
+    let c = dot(p, normalize(vec2(1.0, sqrt(3.0))));
+    return max(c, p.x);
+}
+
+fn hex_coords(uv: vec2<f32>) -> HexCoords {
+    let dist = vec2<f32>(1.0, sqrt(3.0));
+    let half_dist = dist * 0.5;
+
+    // calculating the nearest hexagon center point.
+    let a = mod_euclid(uv, dist) - half_dist;
+    let b = mod_euclid(uv - half_dist, dist) - half_dist;
+
+    var out: HexCoords;
+
+    if length(a) < length(b) {
+        out.center = a;
+    } else {
+        out.center = b;
+    }
+    out.coords = uv - out.center;
+    out.edge_dist = hex_dist(out.center);
+    return out;
+}
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -56,13 +99,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if t <= 0.0 {
         return col;
     }
-    let intersect = abs(in.near_point + t * v);
-    let gv = fract(intersect);
-    col.b = gv.x;
-    col.r = gv.z;
-    col.a = 1.0;
-    // col.r = t * 10.0;
-    //col.g = xz.y;
+    let intersect = in.near_point + t * v;
+    let hex = hex_coords(intersect.xz);
+
+    col = vec4<f32>(step(0.49, hex.edge_dist));
 
     // we need to calculate the xy coords where the near-far line intersects y=0
     // col.g = (in.near_point.y - 0.98) / 10.0;

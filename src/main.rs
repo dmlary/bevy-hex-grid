@@ -11,11 +11,12 @@
 ///
 use bevy::{
     asset::ChangeWatcher,
-    core_pipeline::core_3d,
+    core_pipeline::{core_3d, tonemapping::Tonemapping},
     ecs::query::QueryItem,
     prelude::*,
     reflect::TypePath,
     render::{
+        camera::ScalingMode,
         render_graph::{RenderGraphApp, ViewNode, ViewNodeRunner},
         render_resource::{
             BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
@@ -72,8 +73,12 @@ fn setup(
         Name::new("Camera"),
         MainCamera,
         Camera3dBundle {
-            // transform: Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-            transform: Transform::from_xyz(0.0, 1.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+            tonemapping: Tonemapping::None,
+            projection: OrthographicProjection {
+                scaling_mode: ScalingMode::WindowSize(64.0),
+                ..default()
+            }
+            .into(),
             ..default()
         },
         InputManagerBundle::<InputActions> {
@@ -81,11 +86,11 @@ fn setup(
             input_map: input_map(),
         },
         Rig::builder()
-            .with(Position::new(Vec3::new(0.0, 2.0, 0.0)))
+            .with(Position::new(Vec3::new(0.0, 0.0, 0.0)))
             .with(YawPitch::new()) // .pitch_degrees(-30.0)) //.yaw_degrees(45.0))
             .with(Smooth::new_position(0.3))
             .with(Smooth::new_rotation(0.3))
-            .with(Arm::new(Vec3::Z * 1.0))
+            .with(Arm::new(Vec3::Z * 100.0))
             .build(),
     ));
 }
@@ -134,7 +139,7 @@ fn handle_input(
 
     if actions.pressed(InputActions::Click) {
         let vector = actions.axis_pair(InputActions::Rotate).unwrap().xy();
-        camera_yp.rotate_yaw_pitch(-0.1 * vector.x * 15.0, -0.1 * vector.y * 15.0);
+        camera_yp.rotate_yaw_pitch(-0.1 * vector.x * 15.0, vector.y);
     }
 
     let scale = actions.value(InputActions::Scale);
