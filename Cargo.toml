@@ -1,0 +1,16 @@
+[package]
+name = "shader-tool"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.72"
+bevy = { version = "0.11.0", features = ["dynamic_linking"] }
+bevy_dolly = "0.0.1"
+bevy_mod_sysfail = "3.0.0"
+leafwing-input-manager = "0.10.0"
+test-log = "0.2.12"
+tracing = "0.1.37"
+tracing-subscriber = "0.3.17"
