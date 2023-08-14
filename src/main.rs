@@ -21,14 +21,15 @@ use bevy::{
         render_resource::{
             BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingType, BlendState, CachedRenderPipelineId,
-            ColorTargetState, ColorWrites, FragmentState, LoadOp, MultisampleState, Operations,
-            PipelineCache, PolygonMode, PrimitiveState, PrimitiveTopology,
-            RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
-            ShaderStages, ShaderType, TextureFormat, UniformBuffer,
+            ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState,
+            FragmentState, LoadOp, MultisampleState, Operations, PipelineCache, PolygonMode,
+            PrimitiveState, PrimitiveTopology, RenderPassColorAttachment,
+            RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
+            ShaderStages, ShaderType, StencilFaceState, StencilState, TextureFormat, UniformBuffer,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::BevyDefault,
-        view::{ExtractedView, ViewTarget},
+        view::{ExtractedView, ViewDepthTexture, ViewTarget},
         RenderApp,
     },
 };
@@ -62,7 +63,7 @@ fn setup(
 ) {
     // add a cube so it's really clear when the shader doesn't run
     commands.spawn(MaterialMeshBundle {
-        mesh: meshes.add(Mesh::from(shape::Cube { size: 1.5 })),
+        mesh: meshes.add(Mesh::from(shape::Cube { size: 1.0 })),
         transform: Transform::from_xyz(0.0, 0.5, 0.0),
         material: materials.add(StandardMaterial::default()),
         ..default()
@@ -198,13 +199,17 @@ impl HexGridRenderNode {
 }
 
 impl ViewNode for HexGridRenderNode {
-    type ViewQuery = (&'static ExtractedView, &'static ViewTarget);
+    type ViewQuery = (
+        &'static ExtractedView,
+        &'static ViewTarget,
+        &'static ViewDepthTexture,
+    );
 
     fn run(
         &self,
         _graph: &mut bevy::render::render_graph::RenderGraphContext,
         render_context: &mut bevy::render::renderer::RenderContext,
-        (view, view_target): QueryItem<Self::ViewQuery>,
+        (view, view_target, depth): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
         let hex_grid_pipeline = world.resource::<HexGridPipeline>();
@@ -255,15 +260,18 @@ impl ViewNode for HexGridRenderNode {
         // whatever msaa was set to.
         let mut render_pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("hex_grid_pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: view_target.main_texture_view(),
-                resolve_target: None,
-                ops: Operations {
+            color_attachments: &[Some(view_target.get_color_attachment(Operations {
+                load: LoadOp::Load,
+                store: true,
+            }))],
+            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                view: &depth.view,
+                depth_ops: Some(Operations {
                     load: LoadOp::Load,
                     store: true,
-                },
-            })],
-            depth_stencil_attachment: None,
+                }),
+                stencil_ops: None,
+            }),
         });
 
         render_pass.set_render_pipeline(pipeline);
@@ -320,8 +328,27 @@ impl FromWorld for HexGridPipeline {
                 polygon_mode: PolygonMode::Fill,
                 conservative: false,
             },
-            depth_stencil: None,
-            multisample: MultisampleState::default(),
+            depth_stencil: Some(DepthStencilState {
+                format: TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: CompareFunction::Greater,
+                stencil: StencilState {
+                    front: StencilFaceState::IGNORE,
+                    back: StencilFaceState::IGNORE,
+                    read_mask: 0,
+                    write_mask: 0,
+                },
+                bias: DepthBiasState {
+                    constant: 0,
+                    slope_scale: 0.0,
+                    clamp: 0.0,
+                },
+            }),
+            multisample: MultisampleState {
+                count: 4,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
             fragment: Some(FragmentState {
                 shader,
                 shader_defs: vec![],

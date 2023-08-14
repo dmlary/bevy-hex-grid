@@ -89,23 +89,27 @@ fn hex_coords(uv: vec2<f32>) -> HexCoords {
     return out;
 }
 
-@fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    var col = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+struct FragmentOutput {
+    @location(0) color: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+};
 
-    let v = in.far_point - in.near_point;
+@fragment
+fn fragment(in: VertexOutput) -> FragmentOutput {
+    var out: FragmentOutput;
+
     // calculate intersect with y = 0;
+    let v = in.far_point - in.near_point;
     let t = -in.near_point.y / v.y;
-    if t <= 0.0 {
-        return col;
-    }
     let intersect = in.near_point + t * v;
+    out.depth = abs(intersect.z);
+
+    if t <= 0.0 {
+        return out;
+    }
     let hex = hex_coords(intersect.xz);
 
-    col = vec4<f32>(step(0.49, hex.edge_dist));
+    out.color = vec4<f32>(step(0.49, hex.edge_dist));
 
-    // we need to calculate the xy coords where the near-far line intersects y=0
-    // col.g = (in.near_point.y - 0.98) / 10.0;
-    //col.g = (in.near_point.y - 0.95) * 10.0;
-    return col;
+    return out;
 }
