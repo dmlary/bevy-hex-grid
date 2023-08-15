@@ -76,7 +76,7 @@ fn setup(
         Camera3dBundle {
             tonemapping: Tonemapping::None,
             projection: OrthographicProjection {
-                scaling_mode: ScalingMode::WindowSize(64.0),
+                scaling_mode: ScalingMode::WindowSize(96.0),
                 ..default()
             }
             .into(),
@@ -88,7 +88,7 @@ fn setup(
         },
         Rig::builder()
             .with(Position::new(Vec3::new(0.0, 0.0, 0.0)))
-            .with(YawPitch::new()) // .pitch_degrees(-30.0)) //.yaw_degrees(45.0))
+            .with(YawPitch::new().pitch_degrees(-30.0).yaw_degrees(45.0))
             .with(Smooth::new_position(0.3))
             .with(Smooth::new_rotation(0.3))
             .with(Arm::new(Vec3::Z * 100.0))
@@ -188,6 +188,7 @@ struct ViewUniform {
     projection: Mat4,
     inverse_projection: Mat4,
     view: Mat4,
+    inverse_view: Mat4,
     position: Vec3,
 }
 
@@ -220,11 +221,13 @@ impl ViewNode for HexGridRenderNode {
 
         // create a buffer for our uniform and write it to the GPU
         let mut buffer: UniformBuffer<ViewUniform> = UniformBuffer::default();
+        let view_matrix = view.transform.compute_matrix();
         buffer.set(ViewUniform {
             viewport: view.viewport,
             projection: view.projection,
             inverse_projection: view.projection.inverse(),
-            view: view.transform.compute_matrix(),
+            view: view_matrix,
+            inverse_view: view_matrix.inverse(),
             position: view.transform.translation(),
         });
         // let mat = dbg!(view.projection * view.transform.compute_matrix());

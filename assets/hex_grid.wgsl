@@ -10,6 +10,7 @@ struct View {
     projection: mat4x4<f32>,
     inverse_projection: mat4x4<f32>,
     view: mat4x4<f32>,
+    inverse_view: mat4x4<f32>,
     position: vec3<f32>,
 };
 
@@ -56,7 +57,6 @@ fn mod_euclid(p: vec2<f32>, m: vec2<f32>) -> vec2<f32> {
     return r;
 }
 
-
 struct HexCoords {
     coords: vec2<f32>,
     center: vec2<f32>,
@@ -102,14 +102,17 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     let v = in.far_point - in.near_point;
     let t = -in.near_point.y / v.y;
     let intersect = in.near_point + t * v;
-    out.depth = abs(intersect.z);
+
+    // calculate the depth from the intersect point
+    let clipped = view.projection * view.inverse_view * vec4(intersect, 1.0);
+    out.depth = clipped.z / clipped.w;
 
     if t <= 0.0 {
         return out;
     }
     let hex = hex_coords(intersect.xz);
 
-    out.color = vec4<f32>(step(0.49, hex.edge_dist));
+    out.color = vec4<f32>(step(0.49, hex.edge_dist)) * 0.6;
 
     return out;
 }
