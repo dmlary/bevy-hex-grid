@@ -43,7 +43,6 @@ fn vertex(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
     out.near_point = unproject_point(pos);
     out.far_point = unproject_point(vec3<f32>(pos.xy, 0.00001));
     return out;
-    // return vec4(unproject_point(grid_plane[in_vertex_index]), 1.0);
 }
 
 fn mod_euclid(p: vec2<f32>, m: vec2<f32>) -> vec2<f32> {
@@ -112,7 +111,8 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     }
     let hex = hex_coords(intersect.xz);
 
-    out.color = vec4<f32>(step(0.49, hex.edge_dist)) * 0.6;
+    // lazy anti-alias using smoothstep
+    out.color = vec4<f32>(smoothstep(0.46, 0.5, hex.edge_dist)) * 0.6;
 
     return out;
 }
