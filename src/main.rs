@@ -17,15 +17,16 @@ use bevy::{
     reflect::TypePath,
     render::{
         camera::ScalingMode,
+        extract_component::{ExtractComponent, ExtractComponentPlugin},
         render_graph::{RenderGraphApp, ViewNode, ViewNodeRunner},
         render_resource::{
             BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingType, BlendState, CachedRenderPipelineId,
             ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState,
             FragmentState, LoadOp, MultisampleState, Operations, PipelineCache, PolygonMode,
-            PrimitiveState, PrimitiveTopology, RenderPassColorAttachment,
-            RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
-            ShaderStages, ShaderType, StencilFaceState, StencilState, TextureFormat, UniformBuffer,
+            PrimitiveState, PrimitiveTopology, RenderPassDepthStencilAttachment,
+            RenderPassDescriptor, RenderPipelineDescriptor, ShaderStages, ShaderType,
+            StencilFaceState, StencilState, TextureFormat, UniformBuffer,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::BevyDefault,
@@ -73,6 +74,7 @@ fn setup(
     commands.spawn((
         Name::new("Camera"),
         MainCamera,
+        HexGridCursor::default(),
         Camera3dBundle {
             tonemapping: Tonemapping::None,
             projection: OrthographicProjection {
@@ -153,6 +155,9 @@ struct HexGridPlugin;
 
 impl Plugin for HexGridPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ExtractComponentPlugin::<HexGridCursor>::default())
+            .add_systems(Update, update_hex_grid_cursor);
+
         let render_app = app
             .get_sub_app_mut(RenderApp)
             .expect("RenderApp should already exist in App");
@@ -182,6 +187,27 @@ impl Plugin for HexGridPlugin {
     }
 }
 
+// This is the component that will get passed to the shader
+#[derive(Component, Default, Debug, Clone, Copy, ExtractComponent)]
+struct HexGridCursor {
+    pos: Vec2,
+}
+
+fn update_hex_grid_cursor(
+    windows: Query<&Window>,
+    mut cameras: Query<(&Camera, &GlobalTransform, &mut HexGridCursor)>,
+) {
+    for window in &windows {
+        let Some(cursor_pos) = window.cursor_position() else { continue; };
+        for (camera, global_transform, mut hex_grid_cursor) in &mut cameras {
+            let Some(ray) = camera.viewport_to_world(global_transform, cursor_pos) else { continue };
+            let Some(dist) = ray.intersect_plane(Vec3::ZERO, Vec3::Y) else { continue };
+            let point = ray.get_point(dist);
+            hex_grid_cursor.pos = Vec2::new(point.x, point.z);
+        }
+    }
+}
+
 #[derive(Debug, ShaderType, Default)]
 struct ViewUniform {
     viewport: UVec4,
@@ -189,7 +215,7 @@ struct ViewUniform {
     inverse_projection: Mat4,
     view: Mat4,
     inverse_view: Mat4,
-    position: Vec3,
+    cursor_pos: Vec2,
 }
 
 #[derive(Debug, Default)]
@@ -204,13 +230,14 @@ impl ViewNode for HexGridRenderNode {
         &'static ExtractedView,
         &'static ViewTarget,
         &'static ViewDepthTexture,
+        &'static HexGridCursor,
     );
 
     fn run(
         &self,
         _graph: &mut bevy::render::render_graph::RenderGraphContext,
         render_context: &mut bevy::render::renderer::RenderContext,
-        (view, view_target, depth): QueryItem<Self::ViewQuery>,
+        (view, view_target, depth, hex_grid_cursor): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
         let hex_grid_pipeline = world.resource::<HexGridPipeline>();
@@ -228,7 +255,7 @@ impl ViewNode for HexGridRenderNode {
             inverse_projection: view.projection.inverse(),
             view: view_matrix,
             inverse_view: view_matrix.inverse(),
-            position: view.transform.translation(),
+            cursor_pos: hex_grid_cursor.pos,
         });
         // let mat = dbg!(view.projection * view.transform.compute_matrix());
         // let vecs = [

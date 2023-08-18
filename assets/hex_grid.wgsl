@@ -11,7 +11,7 @@ struct View {
     inverse_projection: mat4x4<f32>,
     view: mat4x4<f32>,
     inverse_view: mat4x4<f32>,
-    position: vec3<f32>,
+    cursor_pos: vec2<f32>,
 };
 
 struct VertexOutput {
@@ -58,7 +58,6 @@ fn mod_euclid(p: vec2<f32>, m: vec2<f32>) -> vec2<f32> {
 
 struct HexCoords {
     coords: vec2<f32>,
-    center: vec2<f32>,
     edge_dist: f32,
 };
 
@@ -77,14 +76,15 @@ fn hex_coords(uv: vec2<f32>) -> HexCoords {
     let b = mod_euclid(uv - half_dist, dist) - half_dist;
 
     var out: HexCoords;
-
+    var center: vec2<f32>;
     if length(a) < length(b) {
-        out.center = a;
+        center = a;
     } else {
-        out.center = b;
-    }
-    out.coords = uv - out.center;
-    out.edge_dist = hex_dist(out.center);
+        center = b;
+    };
+
+    out.coords = uv - center;
+    out.edge_dist = hex_dist(center);
     return out;
 }
 
@@ -111,8 +111,17 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     }
     let hex = hex_coords(intersect.xz);
 
+    var step: f32;
+    if distance(hex.coords, view.cursor_pos) <= 0.5 {
+        out.color = vec4(1.0, 0.8, 0.2, 1.0);
+        step = 0.33;
+    } else {
+        out.color = vec4(0.6);
+        step = 0.46;
+    }
+
     // lazy anti-alias using smoothstep
-    out.color = vec4<f32>(smoothstep(0.46, 0.5, hex.edge_dist)) * 0.6;
+    out.color *= smoothstep(step, 0.5, hex.edge_dist);
 
     return out;
 }
