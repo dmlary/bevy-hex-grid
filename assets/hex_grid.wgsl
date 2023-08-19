@@ -18,6 +18,10 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) near_point: vec3<f32>,
     @location(1) far_point: vec3<f32>,
+    @location(2) cursor_hex: vec2<f32>,     // cursor hex coordinates
+    @location(3) cursor_hex_edge_dist: f32, // distance of cursor from hex edge
+    @location(4) cursor_hex_angle: f32,     // polar coord of cursor in hex
+                                            // round
 };
 
 @group(0) @binding(0)
@@ -42,6 +46,11 @@ fn vertex(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
     out.clip_position = vec4(pos, 1.0);
     out.near_point = unproject_point(pos);
     out.far_point = unproject_point(vec3<f32>(pos.xy, 0.00001));
+
+    let cursor = hex_coords(view.cursor_pos);
+    out.cursor_hex = cursor.coords;
+    out.cursor_hex_edge_dist = cursor.edge_dist;
+    out.cursor_hex_angle = cursor.angle - cursor.angle % (radians(360.0 / 6.0));
     return out;
 }
 
@@ -59,6 +68,7 @@ fn mod_euclid(p: vec2<f32>, m: vec2<f32>) -> vec2<f32> {
 struct HexCoords {
     coords: vec2<f32>,
     edge_dist: f32,
+    angle: f32,
 };
 
 fn hex_dist(pos: vec2<f32>) -> f32 {
@@ -84,7 +94,8 @@ fn hex_coords(uv: vec2<f32>) -> HexCoords {
     };
 
     out.coords = uv - center;
-    out.edge_dist = hex_dist(center);
+    out.edge_dist = 0.5 - hex_dist(center);
+    out.angle = atan2(center.x, center.y) + radians(180.0);
     return out;
 }
 
@@ -100,28 +111,36 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     // calculate intersect with y = 0;
     let v = in.far_point - in.near_point;
     let t = -in.near_point.y / v.y;
+    if t <= 0.0 {
+        return out;
+    }
+
     let intersect = in.near_point + t * v;
 
     // calculate the depth from the intersect point
     let clipped = view.projection * view.inverse_view * vec4(intersect, 1.0);
     out.depth = clipped.z / clipped.w;
 
-    if t <= 0.0 {
-        return out;
-    }
+
     let hex = hex_coords(intersect.xz);
 
-    var step: f32;
-    if distance(hex.coords, view.cursor_pos) <= 0.5 {
+    var step = 0.04;
+    out.color = vec4(0.6);
+
+    if distance(hex.coords, in.cursor_hex) < 0.1 {
         out.color = vec4(1.0, 0.8, 0.2, 1.0);
-        step = 0.33;
-    } else {
-        out.color = vec4(0.6);
-        step = 0.46;
+        step = 0.23;
+        if in.cursor_hex_edge_dist < 0.15 {
+            let h = hex.angle - hex.angle % radians(360.0 / 6.0);
+            if h == in.cursor_hex_angle {
+                out.color = vec4(0.2, 0.8, 1.0, 1.0);
+                step = 0.23;
+            }
+        }
     }
 
     // lazy anti-alias using smoothstep
-    out.color *= smoothstep(step, 0.5, hex.edge_dist);
+    out.color *= (1.0 - smoothstep(0.0, step, hex.edge_dist));
 
     return out;
 }
